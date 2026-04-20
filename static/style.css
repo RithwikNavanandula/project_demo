@@ -133,6 +133,28 @@ main {
     font-size: 14px;
 }
 
+.model-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.model-picker label {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.model-picker select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--neutral-border);
+    border-radius: 8px;
+    background: white;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
 /* File Input */
 #fileInput {
     display: none;

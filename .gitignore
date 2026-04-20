@@ -39,9 +39,11 @@ virtualenv/
 # Project specific
 uploads/
 model_hindi/
+model_greek/
 *.log
 .env
 .env.local
+*Colab*.pdf
 
 # Flask
 instance/

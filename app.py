@@ -1,15 +1,21 @@
 """
-Flask web application for Hindi OCR with image upload and prediction
+Flask web application for OCR with multi-model support (Hindi + Greek)
 """
+import inspect
+import importlib.util
 import os
-import sys
+import re
 import shutil
+import sys
+from dataclasses import dataclass
+
 import cv2
 import numpy as np
 import tensorflow as tf
-from flask import Flask, render_template, request, redirect, url_for, jsonify
+from flask import Flask, jsonify, render_template, request, url_for
+from huggingface_hub import hf_hub_download, list_repo_files
 from werkzeug.utils import secure_filename
-from huggingface_hub import hf_hub_download
+
 from config import app_config
 
 # ═══════════════════════════════════════════════════════════════
@@ -17,322 +23,482 @@ from config import app_config
 # ═══════════════════════════════════════════════════════════════
 UPLOAD_FOLDER = app_config.UPLOAD_FOLDER
 ALLOWED_EXTENSIONS = app_config.ALLOWED_EXTENSIONS
-# Use absolute paths — mirrors the notebook's /content/model_hindi pattern
 CODE_DIR = os.path.abspath(os.getcwd())
-MODEL_DIR = os.path.join(CODE_DIR, 'model_hindi')
-MODEL_REPO_ID = app_config.MODEL_REPO_ID
+DEFAULT_MODEL_KEY = "hindi"
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(MODEL_DIR, exist_ok=True)
+
+
+@dataclass
+class ModelConfig:
+    key: str
+    display_name: str
+    repo_id: str
+    model_dir: str
+    snapshot_prefix_remote: str
+    code_files: list[tuple[str, str]]
+    required_artifacts: list[str]
+    optional_artifacts: list[str]
+    model_file_local: str
+    preprocessor_file_local: str
+
+
+MODEL_CONFIGS: dict[str, ModelConfig] = {
+    "hindi": ModelConfig(
+        key="hindi",
+        display_name="Hindi OCR",
+        repo_id="rajesh-1902/hindi-ocr-crnn-ctc-v2",
+        model_dir=os.path.join(CODE_DIR, "model_hindi"),
+        snapshot_prefix_remote="model_hindi/snapshot-",
+        code_files=[
+            ("Model_Hindi_v2.py", "Model_Hindi_v2.py"),
+            ("DataLoader_Hindi_v2.py", "DataLoader_Hindi_v2.py"),
+            ("SamplePreprocessor_Hindi_v2.py", "SamplePreprocessor_Hindi_v2.py"),
+            ("main_hindi_v2.py", "main_hindi_v2.py"),
+            ("build_charlist_hindi.py", "build_charlist_hindi.py"),
+        ],
+        required_artifacts=["charList.txt", "checkpoint", "accuracy.txt"],
+        optional_artifacts=["metrics.json", "corpus.txt"],
+        model_file_local="Model_Hindi_v2.py",
+        preprocessor_file_local="SamplePreprocessor_Hindi_v2.py",
+    ),
+    "greek": ModelConfig(
+        key="greek",
+        display_name="Greek HTR",
+        repo_id="rajesh-1902/greek-htr-crnn-ctc",
+        model_dir=os.path.join(CODE_DIR, "model_greek"),
+        snapshot_prefix_remote="snapshot-",
+        code_files=[
+            ("src/Model.py", "Model_Greek.py"),
+            ("src/DataLoader.py", "DataLoader_Greek.py"),
+            ("src/SamplePreprocessor.py", "SamplePreprocessor_Greek.py"),
+            ("src/main.py", "main_Greek.py"),
+            ("src/build_charlist.py", "build_charlist_greek.py"),
+        ],
+        required_artifacts=["charList.txt", "checkpoint", "accuracy.txt"],
+        optional_artifacts=["corpus.txt", "README.md"],
+        model_file_local="Model_Greek.py",
+        preprocessor_file_local="SamplePreprocessor_Greek.py",
+    ),
+}
+
+for cfg in MODEL_CONFIGS.values():
+    os.makedirs(cfg.model_dir, exist_ok=True)
 
 app = Flask(__name__)
 app.config.from_object(app_config)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
-# Global variables for model
-model = None
-charList = None
-model_initialized = False
+# Runtime state per model
+MODEL_STATES = {
+    key: {
+        "model": None,
+        "charList": None,
+        "initialized": False,
+        "initializing": False,
+        "model_class": None,
+        "preprocess_fn": None,
+    }
+    for key in MODEL_CONFIGS
+}
 
 
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-# ═══════════════════════════════════════════════════════════════
-# MODEL SETUP
-# ═══════════════════════════════════════════════════════════════
-def download_model():
-    """Download model from HuggingFace Hub"""
-    print("\n📥 Downloading model weights (snapshot-5)...")
-    
-    REPO_ID = "rajesh-1902/hindi-crnn-ctc-sentence-model"
-    
-    model_files = [
-        "model/charList.txt",
-        "model/corpus.txt",
-        "model/accuracy.txt",
-        "model/snapshot-5.data-00000-of-00001",
-        "model/snapshot-5.index",
-        "model/snapshot-5.meta",
-    ]
-    
-    for hf_path in model_files:
+def get_model_key(value: str | None) -> str:
+    candidate = (value or DEFAULT_MODEL_KEY).strip().lower()
+    return candidate if candidate in MODEL_CONFIGS else DEFAULT_MODEL_KEY
+
+
+def get_latest_snapshot_prefix(model_dir: str):
+    snapshot_ids = []
+    for file_name in os.listdir(model_dir):
+        match = re.match(r"snapshot-(\d+)\.index$", file_name)
+        if match:
+            snapshot_ids.append(int(match.group(1)))
+    if not snapshot_ids:
+        return None
+    latest_id = max(snapshot_ids)
+    return os.path.join(model_dir, f"snapshot-{latest_id}")
+
+
+def setup_checkpoint(cfg: ModelConfig):
+    snapshot = get_latest_snapshot_prefix(cfg.model_dir)
+    if snapshot is None:
+        raise FileNotFoundError(f"No snapshot-*.index files found in {cfg.model_dir}")
+
+    checkpoint_file = os.path.join(cfg.model_dir, "checkpoint")
+    with open(checkpoint_file, "w", encoding="utf-8") as file_obj:
+        file_obj.write(f'model_checkpoint_path: "{snapshot}"\n')
+        file_obj.write(f'all_model_checkpoint_paths: "{snapshot}"\n')
+    print(f"✅ [{cfg.key}] checkpoint → {snapshot}")
+
+
+def download_model(cfg: ModelConfig):
+    print(f"\n📥 [{cfg.key}] Downloading model from {cfg.repo_id}...")
+
+    remote_required = []
+    remote_optional = []
+    for artifact in cfg.required_artifacts:
+        if cfg.key == "hindi":
+            remote_required.append(f"model_hindi/{artifact}")
+        else:
+            remote_required.append(artifact)
+
+    for artifact in cfg.optional_artifacts:
+        if cfg.key == "hindi":
+            remote_optional.append(f"model_hindi/{artifact}")
+        else:
+            remote_optional.append(artifact)
+
+    for hf_path in remote_required:
         try:
-            local = hf_hub_download(repo_id=REPO_ID, filename=hf_path, repo_type="model")
-            shutil.copy2(local, os.path.join(MODEL_DIR, os.path.basename(hf_path)))
+            local_path = hf_hub_download(repo_id=cfg.repo_id, filename=hf_path, repo_type="model")
+            shutil.copy2(local_path, os.path.join(cfg.model_dir, os.path.basename(hf_path)))
             print(f"  ✅ {os.path.basename(hf_path)}")
-        except Exception as e:
-            print(f"  ❌ Error downloading {hf_path}: {e}")
+        except Exception as error:
+            print(f"  ❌ Error downloading {hf_path}: {error}")
             return False
-    
-    print("\n📥 Downloading code files...")
-    code_files = [
-        "code/Model_Hindi.py",
-        "code/DataLoader_Hindi.py",
-        "code/SamplePreprocessor_Hindi.py",
-        "code/main_hindi.py",
-        "code/build_charlist_hindi.py",
-    ]
-    
-    for hf_path in code_files:
+
+    for hf_path in remote_optional:
         try:
-            local = hf_hub_download(repo_id=REPO_ID, filename=hf_path, repo_type="model")
-            shutil.copy2(local, os.path.join(CODE_DIR, os.path.basename(hf_path)))
+            local_path = hf_hub_download(repo_id=cfg.repo_id, filename=hf_path, repo_type="model")
+            shutil.copy2(local_path, os.path.join(cfg.model_dir, os.path.basename(hf_path)))
             print(f"  ✅ {os.path.basename(hf_path)}")
-        except Exception as e:
-            print(f"  ❌ Error downloading {hf_path}: {e}")
+        except Exception:
+            print(f"  ⚠️ Optional file missing: {hf_path}")
+
+    try:
+        repo_files = list_repo_files(repo_id=cfg.repo_id, repo_type="model")
+    except Exception as error:
+        print(f"  ❌ Failed to list repo files: {error}")
+        return False
+
+    snapshot_files = [
+        file_name for file_name in repo_files
+        if file_name.startswith(cfg.snapshot_prefix_remote)
+    ]
+
+    if not snapshot_files:
+        print("  ❌ No snapshot files found in repository")
+        return False
+
+    print(f"\n📥 [{cfg.key}] Downloading snapshot files...")
+    for hf_path in snapshot_files:
+        try:
+            local_path = hf_hub_download(repo_id=cfg.repo_id, filename=hf_path, repo_type="model")
+            shutil.copy2(local_path, os.path.join(cfg.model_dir, os.path.basename(hf_path)))
+            print(f"  ✅ {os.path.basename(hf_path)}")
+        except Exception as error:
+            print(f"  ❌ Error downloading {hf_path}: {error}")
             return False
-    
+
+    print(f"\n📥 [{cfg.key}] Downloading code files...")
+    for remote_name, local_name in cfg.code_files:
+        try:
+            local_path = hf_hub_download(repo_id=cfg.repo_id, filename=remote_name, repo_type="model")
+            shutil.copy2(local_path, os.path.join(CODE_DIR, local_name))
+            print(f"  ✅ {local_name}")
+        except Exception as error:
+            if "build_charlist" in remote_name.lower():
+                print(f"  ⚠️ Optional code file missing: {remote_name}")
+            else:
+                print(f"  ❌ Error downloading {remote_name}: {error}")
+                return False
+
     return True
 
 
-def setup_checkpoint():
-    """Write checkpoint file with absolute path — mirrors notebook exactly"""
-    SNAPSHOT = os.path.join(MODEL_DIR, "snapshot-5")  # absolute path
-    with open(os.path.join(MODEL_DIR, "checkpoint"), "w") as f:
-        f.write(f'model_checkpoint_path: "{SNAPSHOT}"\n')
-        f.write(f'all_model_checkpoint_paths: "{SNAPSHOT}"\n')
-    print(f"✅ checkpoint → {SNAPSHOT}")
+def apply_model_fixes(cfg: ModelConfig):
+    if cfg.key == "greek":
+        replacements = [
+            ("../model_sentence/", "model_greek/"),
+            ("..\\model_sentence\\", "model_greek\\"),
+            ("tv.initialized_value()", "tv"),
+        ]
+        for file_name in ["Model_Greek.py", "main_Greek.py"]:
+            file_path = os.path.join(CODE_DIR, file_name)
+            if not os.path.exists(file_path):
+                continue
+            with open(file_path, "r", encoding="utf-8") as file_obj:
+                content = file_obj.read()
+            for old_text, new_text in replacements:
+                content = content.replace(old_text, new_text)
+            with open(file_path, "w", encoding="utf-8") as file_obj:
+                file_obj.write(content)
+
+    if cfg.key == "hindi":
+        file_path = os.path.join(CODE_DIR, "Model_Hindi_v2.py")
+        if os.path.exists(file_path):
+            with open(file_path, "r", encoding="utf-8") as file_obj:
+                content = file_obj.read()
+            content = content.replace("tv.initialized_value()", "tv")
+            with open(file_path, "w", encoding="utf-8") as file_obj:
+                file_obj.write(content)
+
+    print(f"✅ [{cfg.key}] Bug fixes applied")
 
 
-def fix_model_bugs():
-    """Fix known bugs in model files"""
-    model_py = os.path.join(CODE_DIR, "Model_Hindi.py")
-    
-    if os.path.exists(model_py):
-        with open(model_py, "r") as f:
-            src = f.read()
-        src = src.replace("tv.initialized_value()", "tv")
-        src = src.replace("../model_hindi/", "model_hindi/")
-        with open(model_py, "w") as f:
-            f.write(src)
-    
-    for fname in ["main_hindi.py"]:
-        fp = os.path.join(CODE_DIR, fname)
-        if os.path.exists(fp):
-            with open(fp, "r") as f:
-                c = f.read()
-            c = c.replace("../model_hindi/", "model_hindi/")
-            with open(fp, "w") as f:
-                f.write(c)
-    
-    print("✅ Bug fixes applied")
+def load_module_from_file(module_name: str, file_path: str):
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load module {module_name} from {file_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
-def load_model_and_charlist():
-    """Load the Hindi OCR model — mirrors notebook exactly"""
-    global model, charList, model_initialized
-    
-    if model is not None and charList is not None:
+def load_model(model_key: str):
+    cfg = MODEL_CONFIGS[model_key]
+    state = MODEL_STATES[model_key]
+
+    if state["initialized"] and state["model"] is not None:
         return True
-    
+
     try:
-        print("\n🔧 Setting up TensorFlow...")
-        # Mirrors notebook FINAL FIX CELL exactly
+        print(f"\n🔧 [{model_key}] Setting up TensorFlow...")
         tf.keras.backend.clear_session()
         tf.compat.v1.disable_eager_execution()
-        
-        # Stay in CODE_DIR — exactly like notebook's os.chdir(CODE_DIR)
         os.chdir(CODE_DIR)
-        
-        # Force fresh imports
-        for mod in ["Model_Hindi", "SamplePreprocessor_Hindi", "DataLoader_Hindi"]:
-            sys.modules.pop(mod, None)
-        
-        sys.path.insert(0, CODE_DIR)
-        from Model_Hindi import Model, DecoderType
-        from SamplePreprocessor_Hindi import preprocess
-        
-        # Read charList using absolute path (MODEL_DIR is absolute)
-        with open(os.path.join(MODEL_DIR, "charList.txt"), "r", encoding="utf-8") as f:
-            charList = f.read()
-        print(f"✅ Character set loaded: {len(charList)} chars")
-        
-        # Instantiate model — checkpoint has absolute path so TF finds it correctly
-        model = Model(charList, DecoderType.BestPath, mustRestore=True)
-        print("✅ Model restored successfully!")
-        model_initialized = True
+
+        model_file_path = os.path.join(CODE_DIR, cfg.model_file_local)
+        pre_file_path = os.path.join(CODE_DIR, cfg.preprocessor_file_local)
+
+        model_module = load_module_from_file(f"model_module_{model_key}", model_file_path)
+        pre_module = load_module_from_file(f"pre_module_{model_key}", pre_file_path)
+
+        Model = model_module.Model
+        DecoderType = model_module.DecoderType
+        preprocess = pre_module.preprocess
+
+        with open(os.path.join(cfg.model_dir, "charList.txt"), "r", encoding="utf-8") as file_obj:
+            char_list = file_obj.read()
+
+        latest_snapshot = get_latest_snapshot_prefix(cfg.model_dir)
+        if latest_snapshot is None:
+            raise FileNotFoundError(f"No snapshot found in {cfg.model_dir}")
+
+        model_signature = inspect.signature(Model.__init__)
+        if "restorePath" in model_signature.parameters:
+            loaded_model = Model(
+                char_list,
+                DecoderType.BestPath,
+                mustRestore=True,
+                restorePath=latest_snapshot,
+            )
+        else:
+            loaded_model = Model(char_list, DecoderType.BestPath, mustRestore=True)
+
+        state["model"] = loaded_model
+        state["charList"] = char_list
+        state["initialized"] = True
+        state["model_class"] = Model
+        state["preprocess_fn"] = preprocess
+        print(f"✅ [{model_key}] Model restored successfully!")
         return True
-    except Exception as e:
-        print(f"❌ Error loading model: {e}")
+    except Exception as error:
+        print(f"❌ [{model_key}] Error loading model: {error}")
         import traceback
         traceback.print_exc()
-        model_initialized = False
+        state["initialized"] = False
         return False
 
 
-def recognize(image_path: str) -> str:
-    """Run Hindi OCR on image"""
-    global model, charList
-    
+def model_files_exist(cfg: ModelConfig):
+    has_charlist = os.path.exists(os.path.join(cfg.model_dir, "charList.txt"))
+    has_snapshot = get_latest_snapshot_prefix(cfg.model_dir) is not None
+    has_model_file = os.path.exists(os.path.join(CODE_DIR, cfg.model_file_local))
+    has_pre_file = os.path.exists(os.path.join(CODE_DIR, cfg.preprocessor_file_local))
+    return has_charlist and has_snapshot and has_model_file and has_pre_file
+
+
+def initialize_model(model_key: str):
+    cfg = MODEL_CONFIGS[model_key]
+    state = MODEL_STATES[model_key]
+
+    if state["initialized"]:
+        return True
+
+    if state["initializing"]:
+        print(f"⏳ [{model_key}] Initialization already in progress")
+        return False
+
+    state["initializing"] = True
+
     try:
-        sys.path.insert(0, CODE_DIR)
-        from SamplePreprocessor_Hindi import preprocess
-        from Model_Hindi import Model
-        
-        img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-        if img is None:
-            raise FileNotFoundError(f"Cannot read: {image_path}")
-        
-        img_proc = preprocess(img, Model.imgSize)
-        batch = np.expand_dims(img_proc, axis=0)
-        
-        class _Batch:
-            def __init__(self, imgs):
-                self.imgs = imgs
-        
-        result = model.inferBatch(_Batch(batch))[0]
-        return result
-    except Exception as e:
-        print(f"❌ Error during recognition: {e}")
-        raise
+        print(f"\n🚀 Initializing model: {model_key}")
+
+        if not model_files_exist(cfg):
+            print(f"📥 [{model_key}] Model files not found locally, downloading...")
+            if not download_model(cfg):
+                print(f"❌ [{model_key}] Failed to download model")
+                return False
+        else:
+            print(f"✅ [{model_key}] Model files found locally")
+
+        setup_checkpoint(cfg)
+        apply_model_fixes(cfg)
+        if not load_model(model_key):
+            print(f"❌ [{model_key}] Failed to load model")
+            return False
+
+        print(f"✅ [{model_key}] Model initialized successfully")
+        return True
+    finally:
+        state["initializing"] = False
+
+
+def recognize(image_path: str, model_key: str):
+    cfg = MODEL_CONFIGS[model_key]
+    state = MODEL_STATES[model_key]
+
+    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    if img is None:
+        raise FileNotFoundError(f"Cannot read: {image_path}")
+
+    if not state["initialized"] or state["model"] is None:
+        raise RuntimeError(f"Model '{model_key}' is not initialized")
+
+    img_proc = state["preprocess_fn"](img, state["model_class"].imgSize, dataAugmentation=False)
+    batch = np.expand_dims(img_proc, axis=0)
+
+    class _Batch:
+        def __init__(self, imgs):
+            self.imgs = imgs
+
+    result = state["model"].inferBatch(_Batch(batch))[0]
+    print(f"✅ [{cfg.key}] Prediction done")
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════
 # ROUTES
 # ═══════════════════════════════════════════════════════════════
-@app.route('/')
+@app.route("/")
 def index():
-    """Upload page"""
-    return render_template('upload.html')
+    return render_template("upload.html")
 
 
-@app.route('/predict')
+@app.route("/predict")
 def predict_page():
-    """Prediction results page"""
-    return render_template('predict.html')
+    return render_template("predict.html")
 
 
-@app.route('/api/upload', methods=['POST'])
+@app.route("/api/upload", methods=["POST"])
 def upload_file():
-    """Handle image upload and return prediction"""
     try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file provided'}), 400
-        
-        file = request.files['file']
-        
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
-        
+        model_key = get_model_key(request.form.get("model"))
+
+        if "file" not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+
+        file = request.files["file"]
+        if file.filename == "":
+            return jsonify({"error": "No file selected"}), 400
+
         if not allowed_file(file.filename):
-            return jsonify({'error': 'Invalid file type. Allowed: ' + ', '.join(ALLOWED_EXTENSIONS)}), 400
-        
-        # Save file
+            return jsonify({"error": "Invalid file type. Allowed: " + ", ".join(ALLOWED_EXTENSIONS)}), 400
+
         filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
         file.save(filepath)
-        
-        print(f"\n📸 Processing: {filename}")
-        
-        # Check model status
-        if model is None or not model_initialized:
-            return jsonify({'error': 'Model not loaded. Please wait for initialization or restart the application.'}), 503
-        
-        # Run prediction
-        try:
-            predicted_text = recognize(filepath)
-            print(f"✅ Prediction: {predicted_text}")
-            
-            return jsonify({
-                'success': True,
-                'filename': filename,
-                'filepath': url_for('static', filename=f'../uploads/{filename}'),
-                'predicted_text': predicted_text
-            }), 200
-        except Exception as e:
-            print(f"❌ Recognition error: {e}")
-            return jsonify({'error': f'Recognition failed: {str(e)}'}), 500
-    
-    except Exception as e:
-        print(f"❌ Upload error: {e}")
-        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
+
+        print(f"\n📸 Processing: {filename} | model={model_key}")
+
+        if not MODEL_STATES[model_key]["initialized"]:
+            if not initialize_model(model_key):
+                return jsonify({"error": f"Model '{model_key}' failed to initialize"}), 503
+
+        predicted_text = recognize(filepath, model_key)
+
+        return jsonify(
+            {
+                "success": True,
+                "filename": filename,
+                "filepath": url_for("static", filename=f"../uploads/{filename}"),
+                "predicted_text": predicted_text,
+                "model": model_key,
+            }
+        ), 200
+    except Exception as error:
+        print(f"❌ Upload error: {error}")
+        return jsonify({"error": f"Upload failed: {str(error)}"}), 500
 
 
-@app.route('/api/status')
+@app.route("/api/status")
 def status():
-    """Check model status"""
-    return jsonify({
-        'model_loaded': model is not None,
-        'charlist_loaded': charList is not None
-    })
-
-
-# ═══════════════════════════════════════════════════════════════
-# INITIALIZATION
-# ═══════════════════════════════════════════════════════════════
-
-def initialize_model():
-    """Initialize model on app startup"""
-    global model, charList, model_initialized
-    
-    if model_initialized:
-        return
-    
-    print("\n🚀 Initializing model...")
-    
-    # Check if ALL model files exist (not just charList.txt)
-    model_files_exist = (
-        os.path.exists(os.path.join(MODEL_DIR, "charList.txt")) and
-        os.path.exists(os.path.join(MODEL_DIR, "snapshot-5.data-00000-of-00001")) and
-        os.path.exists(os.path.join(MODEL_DIR, "snapshot-5.index")) and
-        os.path.exists(os.path.join(MODEL_DIR, "snapshot-5.meta"))
+    model_key = get_model_key(request.args.get("model"))
+    state = MODEL_STATES[model_key]
+    return jsonify(
+        {
+            "model": model_key,
+            "model_loaded": state["model"] is not None,
+            "charlist_loaded": state["charList"] is not None,
+            "initialized": state["initialized"],
+            "initializing": state["initializing"],
+            "available_models": list(MODEL_CONFIGS.keys()),
+        }
     )
-    
-    # Download model if not ALL files are present
-    if not model_files_exist:
-        print("📥 Model files not found locally, downloading from HuggingFace Hub...")
-        print("   This may take 2-5 minutes on first run (~100MB download)")
-        if not download_model():
-            print("❌ Failed to download model")
-            return False
-    else:
-        print("✅ Model files found locally")
-    
-    setup_checkpoint()
-    fix_model_bugs()
-    
-    if not load_model_and_charlist():
-        print("❌ Failed to load model")
-        return False
-    
-    print("✅ Model initialized successfully!")
-    return True
+
+
+@app.route("/api/init-model", methods=["POST"])
+def init_model_api():
+    model_param = request.form.get("model")
+    if model_param is None and request.is_json:
+        payload = request.get_json(silent=True) or {}
+        model_param = payload.get("model")
+
+    model_key = get_model_key(model_param)
+    if MODEL_STATES[model_key]["initialized"]:
+        return jsonify({"success": True, "model": model_key, "initialized": True, "already": True}), 200
+
+    ok = initialize_model(model_key)
+    if ok:
+        return jsonify({"success": True, "model": model_key, "initialized": True}), 200
+    return jsonify({"success": False, "model": model_key, "initialized": MODEL_STATES[model_key]["initialized"]}), 503
+
+
+@app.route("/api/models")
+def models_info():
+    payload = {}
+    for key, cfg in MODEL_CONFIGS.items():
+        payload[key] = {
+            "display_name": cfg.display_name,
+            "repo_id": cfg.repo_id,
+            "initialized": MODEL_STATES[key]["initialized"],
+        }
+    return jsonify({"default": DEFAULT_MODEL_KEY, "models": payload})
 
 
 @app.before_request
 def before_request():
-    """Check model status on each request"""
-    global model_initialized
-    
-    # Initialize if not done yet
-    if not model_initialized:
-        initialize_model()
+    if request.path in {"/", "/predict", "/api/status", "/api/models", "/api/init-model"}:
+        return
+    if not MODEL_STATES[DEFAULT_MODEL_KEY]["initialized"]:
+        initialize_model(DEFAULT_MODEL_KEY)
 
 
 @app.errorhandler(404)
 def not_found(error):
-    """Handle 404 errors"""
-    return jsonify({'error': 'Page not found'}), 404
+    return jsonify({"error": "Page not found"}), 404
 
 
 @app.errorhandler(500)
 def server_error(error):
-    """Handle 500 errors"""
     print(f"❌ Server error: {error}")
-    return jsonify({'error': 'Internal server error'}), 500
+    return jsonify({"error": "Internal server error"}), 500
 
 
-if __name__ == '__main__':
-    print("🌐 Starting Hindi OCR Web Application...")
+if __name__ == "__main__":
+    print("🌐 Starting OCR Web Application...")
     print(f"📁 Upload folder: {UPLOAD_FOLDER}")
-    print(f"📁 Model directory: {MODEL_DIR}")
-    print(f"🔗 Visit: http://localhost:5000")
+    for key, cfg in MODEL_CONFIGS.items():
+        print(f"📁 {key} model directory: {cfg.model_dir}")
+    print("🔗 Visit: http://localhost:5000")
     print("")
-    
-    # Initialize model before starting server
-    initialize_model()
-    
-    # Use debug mode from config
-    app.run(debug=app_config.DEBUG, host='0.0.0.0', port=5000, use_reloader=False)
+
+    initialize_model(DEFAULT_MODEL_KEY)
+    app.run(debug=app_config.DEBUG, host="0.0.0.0", port=5000, use_reloader=False)

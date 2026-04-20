@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hindi OCR - Results</title>
+    <title>OCR - Results</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🔤 Hindi OCR Text Recognition</h1>
+            <h1>🔤 OCR Text Recognition</h1>
             <p class="subtitle">Recognition Results</p>
         </header>
 
@@ -25,6 +25,7 @@
 
                 <div class="text-section">
                     <h2>Recognized Text</h2>
+                    <p id="modelUsed" class="file-info"></p>
                     <div class="text-output">
                         <p id="predictedText" class="hindi-text"></p>
                     </div>

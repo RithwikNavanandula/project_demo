@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hindi OCR - Upload Image</title>
+    <title>OCR - Upload Image</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🔤 Hindi OCR Text Recognition</h1>
-            <p class="subtitle">Upload an image of Hindi text for automatic recognition</p>
+            <h1>🔤 Multi-Model OCR Text Recognition</h1>
+            <p class="subtitle">Upload an image and choose model: Hindi or Greek</p>
             <div id="modelIndicator" class="model-indicator">
                 <span class="indicator-dot loading"></span>
                 <span id="modelIndicatorText">Checking model...</span>
@@ -20,8 +20,16 @@
         <main class="upload-section">
             <div class="upload-box">
                 <div class="upload-icon">📸</div>
-                <h2>Upload Hindi Text Image</h2>
+                <h2>Upload Text Image</h2>
                 <p>Drag and drop your image here or click to browse</p>
+
+                <div class="model-picker">
+                    <label for="modelSelect">Choose Model</label>
+                    <select id="modelSelect" name="model">
+                        <option value="hindi" selected>hindi</option>
+                        <option value="greek">greek</option>
+                    </select>
+                </div>
                 
                 <form id="uploadForm" enctype="multipart/form-data">
                     <input 
@@ -59,7 +67,7 @@
                 <ul>
                     <li>Use clear, well-lit images</li>
                     <li>Ensure text is straight and legible</li>
-                    <li>Black text on white background works best</li>
+                    <li>Use `hindi` for Devanagari, `greek` for Greek script</li>
                 </ul>
             </div>
         </main>

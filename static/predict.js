@@ -27,6 +27,11 @@ function displayResults(data) {
     // Display results
     document.getElementById('uploadedImage').src = data.filepath;
     document.getElementById('filename').textContent = `File: ${data.filename}`;
+    if (data.model) {
+        document.getElementById('modelUsed').textContent = `Model: ${data.model}`;
+    } else {
+        document.getElementById('modelUsed').textContent = '';
+    }
     document.getElementById('predictedText').textContent = data.predicted_text;
     resultsContainer.style.display = 'grid';
 }

@@ -17,7 +17,7 @@ class Config:
     
     # Model settings
     MODEL_DIR = os.getenv('MODEL_DIR', 'model_hindi')
-    MODEL_REPO_ID = 'rajesh-1902/hindi-crnn-ctc-sentence-model'
+    MODEL_REPO_ID = 'rajesh-1902/hindi-ocr-crnn-ctc-v2'
     
     # Logging
     LOG_LEVEL = 'INFO'

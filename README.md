@@ -1,11 +1,12 @@
-# Hindi OCR Web Application - Setup & Usage Guide
+# Multi-Model OCR Web Application - Setup & Usage Guide
 
-A full-stack Flask web application for Hindi text recognition from images using a pre-trained CRNN-CTC model.
+A full-stack Flask web application for text recognition from images using pre-trained CRNN-CTC models.
 
 ## 📋 Features
 
 - **Image Upload**: Drag-and-drop or click-to-upload interface
-- **Real-time Recognition**: Hindi text extraction from images
+- **Real-time Recognition**: Text extraction from images
+- **Model Selection**: Choose `hindi` or `greek` at upload time
 - **Two-Page Design**:
   - Page 1: Image upload interface
   - Page 2: Display uploaded image + recognized text
@@ -19,13 +20,13 @@ A full-stack Flask web application for Hindi text recognition from images using 
 
 ### 1. **Clone/Navigate to Project**
 ```bash
-cd /home/rishi/esc/COLLEGE/final-year-project/project_demo
+cd project_demo
 ```
 
-### 2. **Create Virtual Environment**
+### 2. **Create Virtual Environment (Linux/macOS)**
 ```bash
 python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate
 ```
 
 ### 3. **Install Dependencies**
@@ -39,6 +40,39 @@ python app.py
 ```
 
 The app will be available at: **http://localhost:5000**
+
+### 5. **Windows Setup (PowerShell / CMD)**
+
+#### Prerequisites
+- Install **Python 3.10+** from https://www.python.org/downloads/windows/
+- During install, enable **"Add Python to PATH"**
+
+#### A) PowerShell
+```powershell
+cd project_demo
+py -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python app.py
+```
+
+If activation is blocked, run this once in PowerShell (as current user):
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+#### B) Command Prompt (CMD)
+```cmd
+cd project_demo
+py -m venv venv
+venv\Scripts\activate.bat
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python app.py
+```
+
+Open: **http://localhost:5000**
 
 ---
 
@@ -57,7 +91,8 @@ project_demo/
 │   ├── upload.js            # Upload page functionality
 │   └── predict.js           # Results page functionality
 ├── uploads/                 # Directory for uploaded images (auto-created)
-└── model_hindi/             # Model files (auto-downloaded)
+├── model_hindi/             # Hindi model files (auto-downloaded)
+└── model_greek/             # Greek model files (auto-downloaded)
 ```
 
 ---
@@ -67,13 +102,14 @@ project_demo/
 ### Frontend Flow
 1. User opens **http://localhost:5000**
 2. Uploads image via drag-drop or file picker
-3. Flask processes image and runs OCR model
-4. Results page displays image + recognized Hindi text
+3. Flask processes image using selected OCR model
+4. Results page displays image + recognized text
 5. User can copy text or upload another image
 
 ### Backend Flow
 1. **Model Download**: Automatically downloads from HuggingFace Hub
-   - Model: `rajesh-1902/hindi-crnn-ctc-sentence-model`
+   - Hindi model: `rajesh-1902/hindi-ocr-crnn-ctc-v2`
+   - Greek model: `rajesh-1902/greek-htr-crnn-ctc`
    - Files: Weights, preprocessor, model architecture
    
 2. **Image Processing**:
@@ -82,7 +118,7 @@ project_demo/
    - Pass through CRNN-CTC model
    
 3. **Text Recognition**:
-   - Model outputs Hindi text
+   - Model outputs text for the selected script
    - Results sent to frontend
 
 ---
@@ -94,7 +130,8 @@ project_demo/
 | `/` | GET | Upload page |
 | `/predict` | GET | Results page |
 | `/api/upload` | POST | Handle image upload & prediction |
-| `/api/status` | GET | Check model status |
+| `/api/status?model=hindi|greek` | GET | Check selected model status |
+| `/api/models` | GET | List available models |
 
 ### Upload Endpoint Response
 ```json
@@ -102,7 +139,8 @@ project_demo/
   "success": true,
   "filename": "image.jpg",
   "filepath": "/static/../uploads/image.jpg",
-  "predicted_text": "नमस्ते दुनिया"
+   "predicted_text": "नमस्ते दुनिया",
+   "model": "hindi"
 }
 ```
 
@@ -113,7 +151,7 @@ project_demo/
 ### In `app.py`:
 - **UPLOAD_FOLDER**: Where images are saved (default: `uploads/`)
 - **MAX_CONTENT_LENGTH**: Max file size (default: 16MB)
-- **MODEL_DIR**: Where model is stored (default: `model_hindi/`)
+- **MODEL_CONFIGS**: Per-model config for `hindi` and `greek`
 - **ALLOWED_EXTENSIONS**: Image formats (png, jpg, jpeg, gif, bmp)
 
 ---
@@ -122,10 +160,11 @@ project_demo/
 
 - **Architecture**: CRNN-CTC (Convolutional Recurrent Neural Network + Connectionist Temporal Classification)
 - **Input**: Grayscale images
-- **Output**: Hindi text (Devanagari script)
-- **Characters**: 100+ Hindi characters supported
-- **Download Size**: ~100MB
-- **First Run**: Takes 2-3 minutes (model download + initialization)
+- **Output**: Text from selected model (`hindi` or `greek`)
+- **Hindi Model**: Devanagari OCR (`rajesh-1902/hindi-ocr-crnn-ctc-v2`)
+- **Greek Model**: Greek HTR (`rajesh-1902/greek-htr-crnn-ctc`)
+- **Download Size**: ~100MB+ per model (Greek weights are larger)
+- **First Run**: Takes a few minutes per model (download + initialization)
 
 ---
 
@@ -134,7 +173,7 @@ project_demo/
 ### Problem: "Model not loading"
 **Solution**: 
 - Check internet connection (requires HuggingFace Hub access)
-- Delete `model_hindi/` folder and restart app
+- Delete the affected model folder (`model_hindi/` or `model_greek/`) and restart app
 - Check disk space (~200MB required)
 
 ### Problem: "Port 5000 already in use"
@@ -150,6 +189,21 @@ project_demo/
 pip install --upgrade pip
 pip install -r requirements.txt --force-reinstall
 ```
+
+### Problem (Windows): "'python' is not recognized"
+**Solution**:
+- Use `py` instead of `python` in commands, or reinstall Python with **Add to PATH** enabled.
+
+### Problem (Windows): "Activate.ps1 is disabled"
+**Solution**:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+### Problem: "Greek model first run is slow"
+**Solution**:
+- Expected on first run; large snapshot files are downloaded once.
+- Keep the server running until initialization completes.
 
 ### Problem: "CUDA/GPU errors"
 **Solution**: Set environment variable
@@ -172,7 +226,7 @@ CUDA_VISIBLE_DEVICES="" python app.py  # Force CPU only
 - Blurry or low-contrast images
 - Rotated/tilted text
 - Colored background
-- Mixed scripts (Hindi + English)
+- Choosing wrong model for script (use `hindi` for Devanagari, `greek` for Greek)
 - Very small text
 
 ---
@@ -190,11 +244,11 @@ CUDA_VISIBLE_DEVICES="" python app.py  # Force CPU only
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| Flask | 2.3.3 | Web framework |
-| TensorFlow | 2.13.0 | Model runtime |
-| OpenCV | 4.8.0 | Image processing |
-| NumPy | 1.24.3 | Array operations |
-| HuggingFace Hub | 0.16.4 | Model download |
+| Flask | 3.0.0 | Web framework |
+| TensorFlow | 2.19.0 | Model runtime |
+| OpenCV | 4.8.0.74 | Image processing |
+| NumPy | 1.26.4 | Array operations |
+| HuggingFace Hub | 0.23.0 | Model download |
 
 ---
 
@@ -212,7 +266,8 @@ CUDA_VISIBLE_DEVICES="" python app.py  # Force CPU only
 ## 📄 License
 
 This project uses:
-- **Model**: `rajesh-1902/hindi-crnn-ctc-sentence-model` from HuggingFace Hub
+- **Hindi Model**: `rajesh-1902/hindi-ocr-crnn-ctc-v2` from HuggingFace Hub
+- **Greek Model**: `rajesh-1902/greek-htr-crnn-ctc` from HuggingFace Hub
 - **Framework**: Flask (BSD 3-Clause)
 
 ---
@@ -228,18 +283,22 @@ A: 1-2 seconds per image (after model warmup).
 **Q: Can I train my own model?**
 A: Yes, refer to the original HuggingFace repo for training code.
 
+**Q: Which model names should I use?**
+A: Use `hindi` for Hindi OCR and `greek` for Greek HTR.
+
 **Q: Does it support other languages?**
-A: No, only Hindi. Other models available on HuggingFace Hub.
+A: Currently supports `hindi` and `greek`.
 
 ---
 
 ## 📞 Support
 
-For issues with the model, visit: https://huggingface.co/rajesh-1902/hindi-crnn-ctc-sentence-model
+For Hindi model: https://huggingface.co/rajesh-1902/hindi-ocr-crnn-ctc-v2
+
+For Greek model: https://huggingface.co/rajesh-1902/greek-htr-crnn-ctc
 
 For Flask issues: https://flask.palletsprojects.com/
 
 ---
 
 Happy OCR-ing! 🎉
-# project_demo

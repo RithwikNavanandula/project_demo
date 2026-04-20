@@ -46,7 +46,7 @@ python app.py
 When you run the app for the first time, it automatically downloads:
 
 1. **Hindi OCR Model** (~100MB)
-   - From: HuggingFace Hub (rajesh-1902/hindi-crnn-ctc-sentence-model)
+   - From: HuggingFace Hub (rajesh-1902/hindi-ocr-crnn-ctc-v2)
    - Includes: Model weights, preprocessor, character list
    
 2. **Required Python Packages** (specified in requirements.txt)
@@ -173,7 +173,7 @@ ALLOWED_EXTENSIONS = {
     'png', 'jpg', 'jpeg', 'gif', 'bmp'
 }
 MODEL_DIR = 'model_hindi'               # Model storage directory
-MODEL_REPO_ID = 'rajesh-1902/hindi-crnn-ctc-sentence-model'
+MODEL_REPO_ID = 'rajesh-1902/hindi-ocr-crnn-ctc-v2'
 ```
 
 ---
@@ -371,13 +371,13 @@ curl -X POST -F "file=@test_image.jpg" http://localhost:5000/api/upload
 - **TensorFlow Issues**: https://stackoverflow.com/questions/tagged/tensorflow
 - **Flask Documentation**: https://flask.palletsprojects.com/
 - **OpenCV Docs**: https://docs.opencv.org/
-- **HuggingFace Model**: https://huggingface.co/rajesh-1902/hindi-crnn-ctc-sentence-model
+- **HuggingFace Model**: https://huggingface.co/rajesh-1902/hindi-ocr-crnn-ctc-v2
 
 ---
 
 ## 📄 License & Attribution
 
-- **Model**: rajesh-1902/hindi-crnn-ctc-sentence-model (HuggingFace)
+- **Model**: rajesh-1902/hindi-ocr-crnn-ctc-v2 (HuggingFace)
 - **Framework**: Flask (BSD 3-Clause License)
 - **Libraries**: TensorFlow, OpenCV, NumPy (Apache 2.0 / MIT)
 
