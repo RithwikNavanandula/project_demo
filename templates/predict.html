@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hindi OCR - Results</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔤 Hindi OCR Text Recognition</h1>
+            <p class="subtitle">Recognition Results</p>
+        </header>
+
+        <main class="results-section">
+            <div class="results-container" id="resultsContainer" style="display: none;">
+                <div class="image-section">
+                    <h2>Uploaded Image</h2>
+                    <img id="uploadedImage" src="" alt="Uploaded image" class="preview-image">
+                    <p id="filename" class="file-info"></p>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="text-section">
+                    <h2>Recognized Text</h2>
+                    <div class="text-output">
+                        <p id="predictedText" class="hindi-text"></p>
+                    </div>
+                    
+                    <div class="action-buttons">
+                        <button id="copyBtn" class="btn btn-secondary">
+                            📋 Copy Text
+                        </button>
+                        <button onclick="location.href='/'" class="btn btn-primary">
+                            ⬅️ Upload Another Image
+                        </button>
+                    </div>
+
+                    <div id="copyNotification" class="notification" style="display: none;">
+                        ✅ Text copied to clipboard!
+                    </div>
+                </div>
+            </div>
+
+            <div id="loadingSpinner" class="loading-spinner">
+                <div class="spinner"></div>
+                <p>Processing image...</p>
+            </div>
+
+            <div id="errorContainer" class="error-box" style="display: none;">
+                <h3>❌ Error</h3>
+                <p id="errorMessage"></p>
+                <button onclick="location.href='/'" class="btn btn-primary">
+                    Try Again
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='predict.js') }}"></script>
+</body>
+</html>

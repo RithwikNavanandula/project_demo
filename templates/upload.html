@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hindi OCR - Upload Image</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔤 Hindi OCR Text Recognition</h1>
+            <p class="subtitle">Upload an image of Hindi text for automatic recognition</p>
+            <div id="modelIndicator" class="model-indicator">
+                <span class="indicator-dot loading"></span>
+                <span id="modelIndicatorText">Checking model...</span>
+            </div>
+        </header>
+
+        <main class="upload-section">
+            <div class="upload-box">
+                <div class="upload-icon">📸</div>
+                <h2>Upload Hindi Text Image</h2>
+                <p>Drag and drop your image here or click to browse</p>
+                
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <input 
+                        type="file" 
+                        id="fileInput" 
+                        name="file" 
+                        accept="image/*"
+                        required
+                    >
+                    <label for="fileInput" class="file-label">
+                        Choose Image
+                    </label>
+                </form>
+
+                <div id="dropZone" class="drop-zone">
+                    Drop image here
+                </div>
+
+                <button id="uploadBtn" class="btn btn-primary" disabled>
+                    Upload & Recognize
+                </button>
+
+                <div id="uploadStatus" class="status"></div>
+            </div>
+
+            <div class="info-box">
+                <h3>Supported Formats</h3>
+                <ul>
+                    <li>PNG, JPG, JPEG</li>
+                    <li>GIF, BMP</li>
+                    <li>Max file size: 16MB</li>
+                </ul>
+                
+                <h3>Tips for Best Results</h3>
+                <ul>
+                    <li>Use clear, well-lit images</li>
+                    <li>Ensure text is straight and legible</li>
+                    <li>Black text on white background works best</li>
+                </ul>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='upload.js') }}"></script>
+</body>
+</html>
