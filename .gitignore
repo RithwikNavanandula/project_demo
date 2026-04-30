@@ -40,10 +40,22 @@ virtualenv/
 uploads/
 model_hindi/
 model_greek/
+model_greek_word/
 *.log
 .env
 .env.local
 *Colab*.pdf
+Untitled*.ipynb
+untitled*.py
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Office exports / local reports
+!Project_Methodology_and_Deployment_Report.docx
+
+# Keep uploads directory scaffold
+!uploads/.gitkeep
 
 # Flask
 instance/

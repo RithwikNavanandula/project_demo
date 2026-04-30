@@ -25,7 +25,12 @@ function displayResults(data) {
     errorContainer.style.display = 'none';
     
     // Display results
-    document.getElementById('uploadedImage').src = data.filepath;
+    const imageElement = document.getElementById('uploadedImage');
+    const imageSrc = data.image_url || data.filepath || '';
+    imageElement.src = imageSrc;
+    imageElement.onerror = function() {
+        showError('Uploaded image preview failed to load. Please upload again.');
+    };
     document.getElementById('filename').textContent = `File: ${data.filename}`;
     if (data.model) {
         document.getElementById('modelUsed').textContent = `Model: ${data.model}`;

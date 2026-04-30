@@ -9,10 +9,12 @@ import shutil
 import sys
 from dataclasses import dataclass
 
+os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
+
 import cv2
 import numpy as np
 import tensorflow as tf
-from flask import Flask, jsonify, render_template, request, url_for
+from flask import Flask, jsonify, render_template, request, send_from_directory, url_for
 from huggingface_hub import hf_hub_download, list_repo_files
 from werkzeug.utils import secure_filename
 
@@ -79,6 +81,21 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
         optional_artifacts=["corpus.txt", "README.md"],
         model_file_local="Model_Greek.py",
         preprocessor_file_local="SamplePreprocessor_Greek.py",
+    ),
+    "greek-word": ModelConfig(
+        key="greek-word",
+        display_name="Greek HTR (Word)",
+        repo_id="rithwikn/greek-historical-htr-model",
+        model_dir=os.path.join(CODE_DIR, "model_greek_word"),
+        snapshot_prefix_remote="snapshot-",
+        code_files=[
+            ("Model.py", "Model_GreekWord.py"),
+            ("SamplePreprocessor.py", "SamplePreprocessor_GreekWord.py"),
+        ],
+        required_artifacts=["charList.txt", "checkpoint"],
+        optional_artifacts=[],
+        model_file_local="Model_GreekWord.py",
+        preprocessor_file_local="SamplePreprocessor_GreekWord.py",
     ),
 }
 
@@ -387,6 +404,11 @@ def predict_page():
     return render_template("predict.html")
 
 
+@app.route("/uploads/<path:filename>")
+def uploaded_file(filename):
+    return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
+
+
 @app.route("/api/upload", methods=["POST"])
 def upload_file():
     try:
@@ -418,7 +440,8 @@ def upload_file():
             {
                 "success": True,
                 "filename": filename,
-                "filepath": url_for("static", filename=f"../uploads/{filename}"),
+                "filepath": url_for("uploaded_file", filename=filename),
+                "image_url": url_for("uploaded_file", filename=filename),
                 "predicted_text": predicted_text,
                 "model": model_key,
             }

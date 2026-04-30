@@ -28,6 +28,7 @@
                     <select id="modelSelect" name="model">
                         <option value="hindi" selected>hindi</option>
                         <option value="greek">greek</option>
+                        <option value="greek-word">greek-word</option>
                     </select>
                 </div>
                 
@@ -42,10 +43,18 @@
                     <label for="fileInput" class="file-label">
                         Choose Image
                     </label>
+                    <button type="button" id="pasteBtn" class="btn btn-secondary paste-btn">
+                        📋 Paste Image
+                    </button>
                 </form>
 
                 <div id="dropZone" class="drop-zone">
-                    Drop image here
+                    Drop image here or press Ctrl+V to paste
+                </div>
+
+                <div id="previewContainer" class="preview-container" style="display: none;">
+                    <h3>Image Preview</h3>
+                    <img id="imagePreview" class="preview-image" alt="Selected image preview">
                 </div>
 
                 <button id="uploadBtn" class="btn btn-primary" disabled>

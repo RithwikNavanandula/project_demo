@@ -5,8 +5,12 @@ const dropZone = document.getElementById('dropZone');
 const uploadForm = document.getElementById('uploadForm');
 const uploadStatus = document.getElementById('uploadStatus');
 const modelSelect = document.getElementById('modelSelect');
+const pasteBtn = document.getElementById('pasteBtn');
+const previewContainer = document.getElementById('previewContainer');
+const imagePreview = document.getElementById('imagePreview');
 
 let modelReady = false;
+let currentPreviewUrl = null;
 
 // Check model status on page load
 document.addEventListener('DOMContentLoaded', function() {
@@ -90,11 +94,74 @@ function updateStatusDisplay(status, modelName) {
 // File input change handler
 fileInput.addEventListener('change', function() {
     if (this.files.length > 0) {
-        uploadBtn.disabled = false;
-        uploadStatus.textContent = `Selected: ${this.files[0].name}`;
-        uploadStatus.className = 'status uploading';
+        setSelectedFile(this.files[0], 'Selected');
     }
 });
+
+function setPreview(file) {
+    if (!imagePreview || !previewContainer) {
+        return;
+    }
+
+    if (currentPreviewUrl) {
+        URL.revokeObjectURL(currentPreviewUrl);
+    }
+
+    currentPreviewUrl = URL.createObjectURL(file);
+    imagePreview.src = currentPreviewUrl;
+    previewContainer.style.display = 'block';
+}
+
+function setSelectedFile(file, sourceLabel = 'Selected') {
+    if (!file) {
+        return;
+    }
+
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    fileInput.files = dt.files;
+
+    setPreview(file);
+    uploadBtn.disabled = false;
+    uploadStatus.textContent = `${sourceLabel}: ${file.name}`;
+    uploadStatus.className = 'status uploading';
+}
+
+function getClipboardImageFile(event) {
+    const clipboardData = event.clipboardData;
+    if (!clipboardData || !clipboardData.items) {
+        return null;
+    }
+
+    for (const item of clipboardData.items) {
+        if (item.type && item.type.startsWith('image/')) {
+            const blob = item.getAsFile();
+            if (blob) {
+                const extension = item.type.split('/')[1] || 'png';
+                return new File([blob], `pasted-image-${Date.now()}.${extension}`, { type: item.type });
+            }
+        }
+    }
+
+    return null;
+}
+
+document.addEventListener('paste', function(event) {
+    const imageFile = getClipboardImageFile(event);
+    if (!imageFile) {
+        return;
+    }
+
+    event.preventDefault();
+    setSelectedFile(imageFile, 'Pasted image');
+});
+
+if (pasteBtn) {
+    pasteBtn.addEventListener('click', function() {
+        uploadStatus.textContent = '📋 Press Ctrl+V (or Cmd+V) to paste an image from clipboard.';
+        uploadStatus.className = 'status uploading';
+    });
+}
 
 async function initializeSelectedModel() {
     const selectedModel = modelSelect ? modelSelect.value : 'hindi';
@@ -128,8 +195,7 @@ dropZone.addEventListener('drop', function(e) {
     
     const files = e.dataTransfer.files;
     if (files.length > 0) {
-        fileInput.files = files;
-        fileInput.dispatchEvent(new Event('change'));
+        setSelectedFile(files[0], 'Dropped image');
     }
 });
 
@@ -196,6 +262,7 @@ uploadBtn.addEventListener('click', async function(e) {
             sessionStorage.setItem('uploadedFile', JSON.stringify({
                 filename: data.filename,
                 filepath: data.filepath,
+                image_url: data.image_url || data.filepath,
                 predicted_text: data.predicted_text,
                 model: data.model || (modelSelect ? modelSelect.value : 'hindi')
             }));
