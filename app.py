@@ -496,9 +496,14 @@ def models_info():
     return jsonify({"default": DEFAULT_MODEL_KEY, "models": payload})
 
 
+@app.route("/healthz")
+def healthz():
+    return jsonify({"status": "ok"}), 200
+
+
 @app.before_request
 def before_request():
-    if request.path in {"/", "/predict", "/api/status", "/api/models", "/api/init-model"}:
+    if request.path in {"/", "/predict", "/api/status", "/api/models", "/api/init-model", "/healthz"}:
         return
     if not MODEL_STATES[DEFAULT_MODEL_KEY]["initialized"]:
         initialize_model(DEFAULT_MODEL_KEY)
