@@ -41,6 +41,42 @@ python app.py
 
 The app will be available at: **http://localhost:5000**
 
+---
+
+## ☁️ Deploy on Render
+
+This project is configured for Render using `render.yaml`.
+
+### Option A: Blueprint Deploy (Recommended)
+1. Push this repository to GitHub.
+2. In Render dashboard, click **New +** → **Blueprint**.
+3. Select your repo and deploy.
+4. Render reads `render.yaml` and creates the web service automatically.
+
+### Option B: Manual Web Service
+Use these settings if creating a service manually:
+
+- **Environment**: Python
+- **Build Command**:
+   ```bash
+   pip install --upgrade pip && pip install -r requirements.txt
+   ```
+- **Start Command**:
+   ```bash
+   gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 300 app:app
+   ```
+- **Health Check Path**: `/api/models`
+
+### Required Environment Variables
+- `FLASK_ENV=production`
+- `TF_USE_LEGACY_KERAS=1`
+- `UPLOAD_FOLDER=/tmp/uploads`
+- `PYTHON_VERSION=3.12.3`
+
+Notes:
+- Models are downloaded from Hugging Face at runtime if not present.
+- First cold start can be slow due to model initialization.
+
 ### 5. **Windows Setup (PowerShell / CMD)**
 
 #### Prerequisites

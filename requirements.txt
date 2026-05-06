@@ -1,6 +1,7 @@
 
 Flask==3.0.0
 Werkzeug==3.0.0
+gunicorn==22.0.0
 tensorflow==2.21.0
 tf_keras==2.21.0
 numpy==1.26.4

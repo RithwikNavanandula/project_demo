@@ -516,12 +516,13 @@ def server_error(error):
 
 
 if __name__ == "__main__":
+    port = int(os.getenv("PORT", "5000"))
     print("🌐 Starting OCR Web Application...")
     print(f"📁 Upload folder: {UPLOAD_FOLDER}")
     for key, cfg in MODEL_CONFIGS.items():
         print(f"📁 {key} model directory: {cfg.model_dir}")
-    print("🔗 Visit: http://localhost:5000")
+    print(f"🔗 Visit: http://localhost:{port}")
     print("")
 
     initialize_model(DEFAULT_MODEL_KEY)
-    app.run(debug=app_config.DEBUG, host="0.0.0.0", port=5000, use_reloader=False)
+    app.run(debug=app_config.DEBUG, host="0.0.0.0", port=port, use_reloader=False)
