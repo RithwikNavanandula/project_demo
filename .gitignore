@@ -48,6 +48,14 @@ model_greek_word/
 Untitled*.ipynb
 untitled*.py
 
+# Demo/generated artifacts
+preprocessing_outputs/
+preprocessing_steps_named/
+preprocessing_steps_separate/
+preprocessing_steps*.png
+validation_cer_curve.png
+*.zip
+
 # Notebook checkpoints
 .ipynb_checkpoints/
 
